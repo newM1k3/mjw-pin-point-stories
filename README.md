@@ -32,18 +32,15 @@ Memory Map reads GPS coordinates from photo EXIF data and places each photo as a
 
 **Key interactions:**
 
-- Drag and drop one or more photos onto the dropzone panel.
-- GPS coordinates are extracted automatically from each image's EXIF data.
-- Each photo appears as a pin on the interactive map at its real-world location.
-- Click any pin to preview the photo and view its location and timestamp details.
-- Use the Story Panel to generate an AI-written narrative from your collected photos and locations.
-- Sign in with PocketBase to persist your memory collections across sessions.
+- Drag and drop one or more photos onto the dropzone to extract their GPS coordinates and add them to the map.
+- Pan and zoom the Leaflet map to explore where your photos were taken.
+- Click any map pin to preview the associated photo and its location metadata.
+- Open the Story Panel to generate an AI narrative from your collected photo locations.
+- Sign in through PocketBase to persist memories across sessions.
 
 ## How to Use
 
-Open the app and drag photos from your device onto the photo dropzone. As long as your photos contain embedded GPS metadata — typical of smartphone camera photos — each one will appear immediately as a pin on the map. Pan and zoom the map to explore where your memories were captured. Once you have a collection of photos pinned, open the Story Panel and request an AI-generated narrative that weaves your locations and moments into a readable journey story. Sign in through the auth guard to save collections to the cloud.
-
-Photos without embedded GPS metadata will not be placed on the map. Most smartphone photos include GPS data by default; photos from cameras with location disabled or edited-out EXIF data will be silently skipped or require manual placement.
+Open the app and drop photos onto the upload zone. Each photo with embedded GPS data will appear as a pin on the map automatically — no manual coordinates required. Pan across the map to see your journey take shape, and click individual pins to revisit each moment. When you have a set of memories on the map, open the Story Panel and generate an AI narrative that weaves your locations into a readable story. Sign in with a PocketBase account to save your memory collections across devices.
 
 ## Stack
 
@@ -55,7 +52,7 @@ Photos without embedded GPS metadata will not be placed on the map. Most smartph
 | Icons | Lucide React |
 | Map engine | Leaflet 1.9 + React Leaflet 4 |
 | EXIF parsing | exifr |
-| Optional cloud persistence | PocketBase |
+| Optional cloud persistence & auth | PocketBase |
 | Optional AI backend | Netlify Functions |
 | Hosting | Netlify |
 
@@ -69,7 +66,7 @@ npm install
 npm run dev
 ```
 
-The app works fully with **no environment variables**. Without PocketBase or AI provider variables, it runs as a local browser app with in-session photo pins and EXIF extraction. The map, dropzone, and EXIF parsing all function offline with no configuration required.
+The app works fully with **no environment variables**. Without PocketBase or AI provider variables, it runs as a local browser app with in-memory photo pins and map state. EXIF extraction and Leaflet map rendering work entirely offline.
 
 ## Quality Checks
 
@@ -101,41 +98,40 @@ All environment variables are optional unless you enable the related feature. Th
 
 | Variable | Required? | Scope | Enables | Description |
 | :---- | :---- | :---- | :---- | :---- |
-| `VITE_POCKETBASE_URL` | Optional | Frontend/public | PocketBase sign-in and cloud memory persistence | Public PocketBase/PocketHost URL used for user authentication and user-scoped memory record CRUD. Example: `https://mjwdesign-core.pockethost.io`. |
+| `VITE_POCKETBASE_URL` | Optional | Frontend/public | PocketBase sign-in and cloud memory persistence | Public PocketBase/PocketHost URL used for user authentication and user-scoped record storage. Example: `https://mjwdesign-core.pockethost.io`. |
 | `OPENAI_API_KEY` | Optional | Netlify Function/server only | AI Story Generator through OpenAI | Server-side OpenAI API key. Never expose this as a `VITE_` variable. |
 | `GEMINI_API_KEY` | Optional | Netlify Function/server only | AI Story Generator through Gemini fallback | Server-side Gemini API key. Used only when `OPENAI_API_KEY` is absent. Never expose this as a `VITE_` variable. |
 
 ## PocketBase Auth and Cloud Persistence
 
-The app works fully with **no environment variables**. In local-only mode, photo pins and extracted EXIF data exist only for the current browser session. Users can still explore the map, extract GPS coordinates, and generate stories without signing in.
+The app works fully with **no environment variables**. In local-only mode, photos and map pins exist in browser memory for the current session, and users can still drop photos, explore the map, and generate stories. This preserves offline use and makes the app safe to deploy before PocketBase is configured.
 
-Cloud persistence is optional. When `VITE_POCKETBASE_URL` is configured, the `AuthGuard` component presents a PocketBase sign-in form. Authenticated users can save their memory collections to user-scoped records in PocketBase. Normal user authentication runs through the public PocketBase URL; **no PocketBase superuser token is placed in frontend code**.
+Cloud persistence is optional. When `VITE_POCKETBASE_URL` is configured, the `AuthGuard` component enables a PocketBase sign-in flow. Authenticated users can save their memory collections to PocketBase and access them across sessions. Normal user authentication runs through the public PocketBase URL; **no PocketBase superuser token is placed in frontend code**.
 
 ### Recommended `memories` Collection
 
-Create a PocketBase collection named `memories`. The implementation expects authenticated users to own their own records through an `owner` relation field. Configure the following fields.
+Create a PocketBase collection for storing memory records. The current implementation expects authenticated users to own their own records through an `owner` relation field. For the MJW canonical schema, configure the following fields.
 
 | Field | Type | Notes |
 | :---- | :---- | :---- |
 | `title` | text | Display name for the memory collection. |
 | `owner` | relation to `users` | Should point to the authenticated user. |
-| `photos_json` | json | Stores photo metadata including GPS coordinates, timestamps, and filenames. |
-| `story` | text | Stores the AI-generated narrative for the collection, if generated. |
-| `visibility` | select | Recommended values: `private`, `shared`, `public`. |
+| `photos` | json | Array of photo metadata including GPS coordinates and timestamps. |
+| `story` | text | AI-generated narrative text for the collection. |
 | `created` | system field | Managed by PocketBase. |
 | `updated` | system field | Managed by PocketBase. |
 
-Recommended collection rules should allow authenticated users to create records for themselves and only read, update, or delete their own records. A practical rule pattern is `@request.auth.id != "" && owner = @request.auth.id` for user-scoped list/view/update/delete rules. The create rule should require authentication and an owner value matching the authenticated user.
+Recommended collection rules should allow authenticated users to create records for themselves and only read, update, or delete their own records. A practical rule pattern is `@request.auth.id != "" && owner = @request.auth.id` for user-scoped list/view/update/delete rules.
 
 ## AI Story Generator Setup
 
-The AI Story Generator is implemented through `netlify/functions/generate-story.ts`. Browser code calls `/api/generate-story` via the Netlify redirect; it never calls OpenAI or Gemini directly and never includes API keys in frontend code.
+The AI Story Generator is implemented through `netlify/functions/generate-story.ts`. Browser code calls `/api/generate-story` via the Netlify redirect rules; it never calls OpenAI or Gemini directly and never includes API keys in frontend code.
 
 Configure one provider in your Netlify site settings under **Site configuration → Environment variables**. After adding environment variables, redeploy the Netlify site. If no API key is configured, the app displays a setup message rather than failing silently.
 
 ## Netlify Deployment
 
-The `netlify.toml` at the project root configures the Vite build, static routing, and API function proxying. To deploy on Netlify, connect this GitHub repository and use the following production settings.
+The `netlify.toml` at the project root configures the Vite build, API redirects, and static routing. To deploy on Netlify, connect this GitHub repository and use the following production settings.
 
 | Setting | Value |
 | :---- | :---- |
@@ -165,28 +161,28 @@ Deploy first with no environment variables to confirm the local-only app works, 
 
 ## Accessibility and Production Readiness
 
-The release UI includes accessible labels on the photo dropzone, map controls, story panel actions, and authentication forms. Empty states are intentionally explicit — photos without GPS data are handled gracefully and the map loads in a sensible default state before any photos are added — so the app remains understandable before optional services are configured.
+The release UI includes accessible labels on major map controls, the photo dropzone, authentication actions, and story generation controls. Empty states are explicit so the map and dropzone remain understandable before any photos are added. The auth guard provides clear sign-in and sign-out flows, and the story panel communicates loading and error states rather than failing silently.
 
 ## Project Structure
 
 ```
 src/
   components/
-    AuthGuard.tsx         # PocketBase sign-in guard wrapping protected views
-    MapView.tsx           # Leaflet map canvas with photo pin rendering
-    PhotoDropzone.tsx     # Drag-and-drop photo upload with EXIF extraction
-    StoryPanel.tsx        # AI Story Generator UI and narrative display
+    AuthGuard.tsx         # PocketBase authentication gate
+    MapView.tsx           # React Leaflet map with photo pins
+    PhotoDropzone.tsx     # Drag-and-drop photo upload + EXIF parsing
+    StoryPanel.tsx        # AI story generation UI
   lib/
-    exif.ts               # EXIF GPS and metadata extraction helpers (exifr)
+    exif.ts               # EXIF GPS extraction helpers using exifr
     pocketbase.ts         # Optional PocketBase client wrapper
   types/
-    index.ts              # Shared photo, memory, and location types
-  App.tsx                 # Root layout and view orchestration
+    index.ts              # Shared memory and photo types
+  App.tsx                 # Root layout + state management
   main.tsx                # Entry point
 
 netlify/
   functions/
-    generate-story.ts     # Secure server-side AI story generation function
+    generate-story.ts     # Secure server-side AI story generation
 
 public/
   screenshots/            # README screenshots
@@ -196,11 +192,11 @@ public/
 
 ### v0.1.0 — Beta Release
 
-- Implemented drag-and-drop photo dropzone with automatic EXIF GPS extraction via `exifr`.
-- Added interactive Leaflet map with photo pins positioned from real GPS coordinates.
-- Added secure AI Story Generator through a Netlify Function with server-side AI provider integration.
-- Added optional PocketBase authentication guard for user-scoped cloud persistence.
-- Configured Netlify deployment with `/api/*` proxy redirects for secure function routing.
+- Added drag-and-drop photo dropzone with automatic EXIF GPS coordinate extraction via `exifr`.
+- Added interactive Leaflet map with per-photo pins, popups, and metadata preview.
+- Added secure AI Story Generator through Netlify Functions with OpenAI-first and Gemini-fallback provider handling.
+- Added optional PocketBase authentication guard and cloud memory persistence.
+- Added Netlify deployment configuration with API redirect rules and SPA routing.
 
 ---
 
