@@ -1,5 +1,13 @@
-import { useState, useEffect, ReactNode } from 'react';
-import { pb } from '../lib/pocketbase';
+/**
+ * AuthGuard — Route protection component.
+ *
+ * Consumes AuthContext (via useAuth) to determine whether the user is
+ * authenticated. If not, renders the login screen. Auth state management
+ * (login, logout, token refresh, error handling) is fully delegated to
+ * AuthContext — this component is responsible only for the login UI.
+ */
+import { useState, ReactNode } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { Map, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 interface AuthGuardProps {
@@ -7,43 +15,24 @@ interface AuthGuardProps {
 }
 
 export function AuthGuard({ children }: AuthGuardProps) {
-  const [isAuth, setIsAuth] = useState(pb.authStore.isValid);
+  const { user, isLoading, login } = useAuth();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-
-  useEffect(() => {
-    const unsub = pb.authStore.onChange(() => {
-      setIsAuth(pb.authStore.isValid);
-    });
-
-    const handleAuthError = () => {
-      setIsAuth(false);
-    };
-
-    window.addEventListener('pb:authError', handleAuthError);
-    return () => {
-      unsub();
-      window.removeEventListener('pb:authError', handleAuthError);
-    };
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setIsLoading(true);
     try {
-      await pb.collection('users').authWithPassword(email, password);
+      await login(email, password);
     } catch {
       setError('Invalid credentials. Please check your email and password.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  if (isAuth) return <>{children}</>;
+  if (user) return <>{children}</>;
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center relative overflow-hidden">

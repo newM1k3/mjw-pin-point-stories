@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthGuard } from './components/AuthGuard';
 import { MapView } from './components/MapView';
 import { PhotoDropzone } from './components/PhotoDropzone';
 import { StoryPanel } from './components/StoryPanel';
-import { pb } from './lib/pocketbase';
 import { MapPin, Cluster } from './types';
 import { LogOut, Map, Plus, ChevronDown } from 'lucide-react';
 
@@ -36,9 +36,8 @@ function AppContent() {
     }
   }, [clusters, selectedCluster]);
 
-  const handleLogout = () => {
-    pb.authStore.clear();
-  };
+  const { logout } = useAuth();
+  const handleLogout = () => logout();
 
   const handleReset = () => {
     pins.forEach((p) => { if (p.thumbnailUrl) URL.revokeObjectURL(p.thumbnailUrl); });
@@ -177,8 +176,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthGuard>
-      <AppContent />
-    </AuthGuard>
+    <AuthProvider>
+      <AuthGuard>
+        <AppContent />
+      </AuthGuard>
+    </AuthProvider>
   );
 }

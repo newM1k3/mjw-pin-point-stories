@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Cluster, TravelerLens, Story } from '../types';
-import { pb } from '../lib/pocketbase';
+import { pb, ensureAuth } from '../lib/pocketbase';
 import {
   Sparkles,
   BookOpen,
@@ -80,6 +80,8 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
     if (!story) return;
     setIsSaving(true);
     try {
+      // Point 2: Refresh auth token before write to prevent silent 403 errors.
+      await ensureAuth();
       const record: Partial<Story> = {
         location_name: cluster.locationName || '',
         coordinates: cluster.center,
