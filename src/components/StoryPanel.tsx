@@ -83,6 +83,15 @@ export function StoryPanel({
     setIsGenerating(true);
     updateState({ story: '', isSaved: false });
 
+    // Derive rich context from the cluster's pins.
+    const sortedPins = [...cluster.pins].sort((a, b) => a.timestamp - b.timestamp);
+    const firstPin = sortedPins[0];
+    const lastPin = sortedPins[sortedPins.length - 1];
+    const durationHours =
+      firstPin && lastPin && lastPin.timestamp !== firstPin.timestamp
+        ? (lastPin.timestamp - firstPin.timestamp) / (1000 * 60 * 60)
+        : 0;
+
     try {
       const res = await fetch('/api/generate-story', {
         method: 'POST',
@@ -90,6 +99,13 @@ export function StoryPanel({
         body: JSON.stringify({
           locationName: cluster.locationName || `${cluster.center.lat.toFixed(4)}, ${cluster.center.lng.toFixed(4)}`,
           lenses: selectedLenses,
+          photoCount: cluster.pins.length,
+          dateStart: firstPin ? new Date(firstPin.timestamp).toISOString() : undefined,
+          dateEnd: lastPin ? new Date(lastPin.timestamp).toISOString() : undefined,
+          durationHours: durationHours > 0 ? Math.round(durationHours * 10) / 10 : undefined,
+          stopIndex: clusterIndex + 1,
+          totalStops: totalClusters,
+          tripName: tripName || undefined,
         }),
       });
 
