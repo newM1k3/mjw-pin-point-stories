@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Cluster, TravelerLens, Story } from '../types';
+import { Cluster, TravelerLens, Story, ClusterStoryState } from '../types';
 import { pb, ensureAuth } from '../lib/pocketbase';
 import {
   Sparkles,
@@ -24,26 +24,54 @@ const ALL_LENSES: TravelerLens[] = [
   'Adventure',
 ];
 
+const DEFAULT_STORY_STATE: ClusterStoryState = {
+  selectedLenses: [],
+  story: '',
+  isSaved: false,
+};
+
 interface StoryPanelProps {
   cluster: Cluster;
   clusterIndex: number;
   totalClusters: number;
+  /** UUID generated in App.tsx when photos are first loaded. Saved to PocketBase. */
+  tripId: string;
+  /** Optional human-readable trip name entered by the user. */
+  tripName: string;
+  /** Lifted story state for this cluster — persists across navigation. */
+  storyState?: ClusterStoryState;
+  /** Called whenever story state changes so App.tsx can persist it. */
+  onStoryStateChange: (clusterId: string, state: ClusterStoryState) => void;
   onNavigate: (direction: 'prev' | 'next') => void;
 }
 
-export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }: StoryPanelProps) {
-  const [selectedLenses, setSelectedLenses] = useState<TravelerLens[]>([]);
-  const [story, setStory] = useState('');
+export function StoryPanel({
+  cluster,
+  clusterIndex,
+  totalClusters,
+  tripId,
+  tripName,
+  storyState = DEFAULT_STORY_STATE,
+  onStoryStateChange,
+  onNavigate,
+}: StoryPanelProps) {
+  // Transient UI-only state — does not need to persist across navigation.
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
   const [error, setError] = useState('');
 
+  // Destructure lifted state for convenience.
+  const { selectedLenses, story, isSaved } = storyState;
+
+  const updateState = (patch: Partial<ClusterStoryState>) => {
+    onStoryStateChange(cluster.id, { ...storyState, ...patch });
+  };
+
   const toggleLens = (lens: TravelerLens) => {
-    setSelectedLenses((prev) =>
-      prev.includes(lens) ? prev.filter((l) => l !== lens) : [...prev, lens]
-    );
-    setIsSaved(false);
+    const next = selectedLenses.includes(lens)
+      ? selectedLenses.filter((l) => l !== lens)
+      : [...selectedLenses, lens];
+    updateState({ selectedLenses: next, isSaved: false });
   };
 
   const generateStory = async () => {
@@ -53,8 +81,7 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
     }
     setError('');
     setIsGenerating(true);
-    setStory('');
-    setIsSaved(false);
+    updateState({ story: '', isSaved: false });
 
     try {
       const res = await fetch('/api/generate-story', {
@@ -68,7 +95,7 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
 
       if (!res.ok) throw new Error('Generation failed');
       const data = await res.json();
-      setStory(data.story || '');
+      updateState({ story: data.story || '' });
     } catch {
       setError('Story generation failed. Please try again.');
     } finally {
@@ -83,13 +110,16 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
       // Point 2: Refresh auth token before write to prevent silent 403 errors.
       await ensureAuth();
       const record: Partial<Story> = {
-        location_name: cluster.locationName || '',
+        trip: tripId,
+        location_name: tripName
+          ? `${tripName} — ${cluster.locationName || ''}`
+          : cluster.locationName || '',
         coordinates: cluster.center,
         lenses_used: selectedLenses,
         content: story,
       };
       await pb.collection('stories').create(record);
-      setIsSaved(true);
+      updateState({ isSaved: true });
     } catch {
       setError('Could not save story. Please try again.');
     } finally {
@@ -103,6 +133,7 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
 
   return (
     <div className="flex flex-col h-full overflow-hidden animate-slide-in-right">
+      {/* Header */}
       <div className="flex-shrink-0 p-6 border-b border-white/10">
         <div className="flex items-center justify-between mb-1">
           <span className="font-sans text-xs text-amber-400/70 uppercase tracking-widest">
@@ -126,20 +157,22 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
           </div>
         </div>
 
-        <h2 className="font-serif text-2xl font-light text-white leading-tight">
+        <h2 className="font-serif text-2xl font-light text-white mb-1 leading-tight">
           {cluster.locationName || 'Unknown Location'}
         </h2>
 
-        <div className="flex flex-wrap items-center gap-3 mt-3">
-          <div className="flex items-center gap-1.5 text-white/40">
+        <div className="flex items-center gap-4 text-white/40">
+          <div className="flex items-center gap-1.5">
             <Images className="w-3.5 h-3.5" />
-            <span className="font-sans text-xs">{cluster.pins.length} photo{cluster.pins.length !== 1 ? 's' : ''}</span>
+            <span className="font-sans text-xs">
+              {cluster.pins.length} photo{cluster.pins.length !== 1 ? 's' : ''}
+            </span>
           </div>
-          <div className="flex items-center gap-1.5 text-white/40">
+          <div className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5" />
             <span className="font-sans text-xs">{dateRange}</span>
           </div>
-          <div className="flex items-center gap-1.5 text-white/40">
+          <div className="flex items-center gap-1.5">
             <MapPin className="w-3.5 h-3.5" />
             <span className="font-sans text-xs">
               {cluster.center.lat.toFixed(3)}, {cluster.center.lng.toFixed(3)}
@@ -148,25 +181,30 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
         </div>
       </div>
 
-      {cluster.pins.some((p) => p.thumbnailUrl) && (
-        <div className="flex-shrink-0 px-6 py-4 border-b border-white/10">
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Photo strip */}
+        {cluster.pins.some((p) => p.thumbnailUrl) && (
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
             {cluster.pins
               .filter((p) => p.thumbnailUrl)
-              .slice(0, 8)
+              .slice(0, 6)
               .map((pin) => (
-                <img
+                <div
                   key={pin.id}
-                  src={pin.thumbnailUrl}
-                  alt={pin.fileName}
-                  className="w-16 h-16 object-cover rounded-lg flex-shrink-0 ring-1 ring-white/10"
-                />
+                  className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-white/10"
+                >
+                  <img
+                    src={pin.thumbnailUrl}
+                    alt={pin.fileName}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
               ))}
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
+        {/* Lens selector */}
         <div>
           <h3 className="font-sans text-xs text-white/40 uppercase tracking-widest mb-3">
             Traveler's Lens
@@ -192,6 +230,7 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
           )}
         </div>
 
+        {/* Generated story */}
         {story ? (
           <div className="animate-fade-in space-y-4">
             <div className="flex items-center gap-2">
@@ -208,6 +247,7 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
           </div>
         ) : null}
 
+        {/* Generation spinner */}
         {isGenerating && (
           <div className="animate-fade-in flex flex-col items-center py-8">
             <div className="relative w-12 h-12 mb-4">
@@ -221,6 +261,7 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
         )}
       </div>
 
+      {/* Footer actions */}
       <div className="flex-shrink-0 p-6 border-t border-white/10 space-y-3">
         {error && story && (
           <p className="font-sans text-xs text-red-400 animate-fade-in">{error}</p>
@@ -242,7 +283,6 @@ export function StoryPanel({ cluster, clusterIndex, totalClusters, onNavigate }:
             </>
           )}
         </button>
-
         {story && (
           <button
             onClick={saveStory}

@@ -4,16 +4,31 @@ import { AuthGuard } from './components/AuthGuard';
 import { MapView } from './components/MapView';
 import { PhotoDropzone } from './components/PhotoDropzone';
 import { StoryPanel } from './components/StoryPanel';
-import { MapPin, Cluster } from './types';
-import { LogOut, Map, Plus, ChevronDown } from 'lucide-react';
+import { TripsView } from './components/TripsView';
+import { MapPin, Cluster, ClusterStoryState } from './types';
+import { LogOut, Map as MapIcon, Plus, ChevronDown, BookOpen } from 'lucide-react';
 
 function AppContent() {
   const [pins, setPins] = useState<MapPin[]>([]);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [tripId, setTripId] = useState<string>('');
+  const [tripName, setTripName] = useState<string>('');
+
+  // Lifted story state: keyed by cluster.id so each stop remembers its story
+  // across navigation without re-mounting StoryPanel.
+  const [storyStateMap, setStoryStateMap] = useState<globalThis.Map<string, ClusterStoryState>>(() => new globalThis.Map<string, ClusterStoryState>());
+
+  // My Trips overlay visibility
+  const [showTrips, setShowTrips] = useState(false);
 
   const handlePinsReady = useCallback((newPins: MapPin[], newClusters: Cluster[]) => {
+    // Generate a fresh trip ID for this session when photos are first loaded.
+    const newTripId = crypto.randomUUID();
+    setTripId(newTripId);
+    setTripName('');
+    setStoryStateMap(new globalThis.Map<string, ClusterStoryState>());
     setPins(newPins);
     setClusters(newClusters);
     if (newClusters.length > 0) {
@@ -36,6 +51,10 @@ function AppContent() {
     }
   }, [clusters, selectedCluster]);
 
+  const handleStoryStateChange = useCallback((clusterId: string, state: ClusterStoryState) => {
+    setStoryStateMap((prev) => new globalThis.Map<string, ClusterStoryState>(prev).set(clusterId, state));
+  }, []);
+
   const { logout } = useAuth();
   const handleLogout = () => logout();
 
@@ -44,6 +63,9 @@ function AppContent() {
     setPins([]);
     setClusters([]);
     setSelectedCluster(null);
+    setTripId('');
+    setTripName('');
+    setStoryStateMap(new globalThis.Map<string, ClusterStoryState>());
   };
 
   const showDropzone = pins.length === 0;
@@ -65,9 +87,10 @@ function AppContent() {
 
       {showDropzone && <PhotoDropzone onPinsReady={handlePinsReady} />}
 
+      {/* Top-left: brand + trip name input + new trip button */}
       <div className="absolute top-4 left-4 z-30 flex items-center gap-2">
         <div className="flex items-center gap-2 bg-black/70 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 shadow-xl">
-          <Map className="w-4 h-4 text-amber-400" />
+          <MapIcon className="w-4 h-4 text-amber-400" />
           <span className="font-serif text-base font-light text-white/90 tracking-wide">
             MemoryMap
           </span>
@@ -77,25 +100,47 @@ function AppContent() {
         </div>
 
         {clusters.length > 0 && (
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-1.5 bg-black/70 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 text-white/50 hover:text-white/80 transition-colors text-xs font-sans shadow-xl"
-            title="Load new photos"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New Trip
-          </button>
+          <>
+            <input
+              type="text"
+              value={tripName}
+              onChange={(e) => setTripName(e.target.value)}
+              placeholder="Name this trip…"
+              className="bg-black/70 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 text-white/70 placeholder-white/20 text-xs font-sans shadow-xl focus:outline-none focus:border-amber-500/40 focus:text-white/90 w-40 transition-colors"
+            />
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-1.5 bg-black/70 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 text-white/50 hover:text-white/80 transition-colors text-xs font-sans shadow-xl"
+              title="Load new photos"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New Trip
+            </button>
+          </>
         )}
       </div>
 
-      <button
-        onClick={handleLogout}
-        className="absolute top-4 right-4 z-30 flex items-center gap-1.5 bg-black/70 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 text-white/30 hover:text-white/60 transition-colors text-xs font-sans shadow-xl"
+      {/* Top-right: My Trips + Sign out */}
+      <div
+        className="absolute top-4 z-30 flex items-center gap-2"
         style={{ right: clusters.length > 0 && sidebarOpen ? 'calc(33.333% + 16px)' : '16px' }}
       >
-        <LogOut className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">Sign out</span>
-      </button>
+        <button
+          onClick={() => setShowTrips(true)}
+          className="flex items-center gap-1.5 bg-black/70 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 text-white/50 hover:text-amber-400/80 transition-colors text-xs font-sans shadow-xl"
+          title="View saved trips"
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">My Trips</span>
+        </button>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-1.5 bg-black/70 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 text-white/30 hover:text-white/60 transition-colors text-xs font-sans shadow-xl"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Sign out</span>
+        </button>
+      </div>
 
       {clusters.length > 0 && (
         <>
@@ -112,6 +157,10 @@ function AppContent() {
                 cluster={selectedCluster || clusters[0]}
                 clusterIndex={selectedIndex}
                 totalClusters={clusters.length}
+                tripId={tripId}
+                tripName={tripName}
+                storyState={storyStateMap.get((selectedCluster || clusters[0]).id)}
+                onStoryStateChange={handleStoryStateChange}
                 onNavigate={handleNavigate}
               />
             </div>
@@ -162,6 +211,10 @@ function AppContent() {
                     cluster={selectedCluster || clusters[0]}
                     clusterIndex={selectedIndex}
                     totalClusters={clusters.length}
+                    tripId={tripId}
+                    tripName={tripName}
+                    storyState={storyStateMap.get((selectedCluster || clusters[0]).id)}
+                    onStoryStateChange={handleStoryStateChange}
                     onNavigate={handleNavigate}
                   />
                 </div>
@@ -169,6 +222,11 @@ function AppContent() {
             </div>
           )}
         </>
+      )}
+
+      {/* My Trips overlay */}
+      {showTrips && (
+        <TripsView onClose={() => setShowTrips(false)} />
       )}
     </div>
   );

@@ -33,6 +33,13 @@ export interface Story {
   created: string;
 }
 
+/** Per-cluster story state lifted to App.tsx so it survives cluster navigation. */
+export interface ClusterStoryState {
+  selectedLenses: TravelerLens[];
+  story: string;
+  isSaved: boolean;
+}
+
 export interface AppState {
   pins: MapPin[];
   clusters: Cluster[];

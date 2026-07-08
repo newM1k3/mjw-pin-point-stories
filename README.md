@@ -98,9 +98,8 @@ All environment variables are optional unless you enable the related feature. Th
 
 | Variable | Required? | Scope | Enables | Description |
 | :---- | :---- | :---- | :---- | :---- |
-| `VITE_POCKETBASE_URL` | Optional | Frontend/public | PocketBase sign-in and cloud memory persistence | Public PocketBase/PocketHost URL used for user authentication and user-scoped record storage. Example: `https://mjwdesign-core.pockethost.io`. |
-| `OPENAI_API_KEY` | Optional | Netlify Function/server only | AI Story Generator through OpenAI | Server-side OpenAI API key. Never expose this as a `VITE_` variable. |
-| `GEMINI_API_KEY` | Optional | Netlify Function/server only | AI Story Generator through Gemini fallback | Server-side Gemini API key. Used only when `OPENAI_API_KEY` is absent. Never expose this as a `VITE_` variable. |
+| `VITE_POCKETBASE_URL` | **Required for auth** | Frontend/public | PocketBase sign-in and cloud story persistence | Public PocketBase/PocketHost URL. Defaults to `https://mjwdesign-core.pockethost.io` if unset, but should always be set explicitly in Netlify. |
+| `ANTHROPIC_API_KEY` | **Required for AI** | Netlify Function/server only | AI Story Generator via Claude 3.5 Sonnet | Server-side Anthropic API key. Set in Netlify site configuration → Environment variables. Never expose this as a `VITE_` variable. |
 
 ## PocketBase Auth and Cloud Persistence
 
@@ -125,9 +124,11 @@ Recommended collection rules should allow authenticated users to create records 
 
 ## AI Story Generator Setup
 
-The AI Story Generator is implemented through `netlify/functions/generate-story.ts`. Browser code calls `/api/generate-story` via the Netlify redirect rules; it never calls OpenAI or Gemini directly and never includes API keys in frontend code.
+The AI Story Generator is implemented through `netlify/functions/generate-story.ts`. Browser code calls `/api/generate-story` via the Netlify redirect rules; it never calls Anthropic directly and never includes API keys in frontend code.
 
-Configure one provider in your Netlify site settings under **Site configuration → Environment variables**. After adding environment variables, redeploy the Netlify site. If no API key is configured, the app displays a setup message rather than failing silently.
+The function calls **Anthropic Claude 3.5 Sonnet** (`claude-3-5-sonnet-20241022`) with a crafted travel-writing system prompt. It accepts a `locationName` and an array of `lenses` (traveler perspectives), and returns a 250–300 word second-person narrative.
+
+Set `ANTHROPIC_API_KEY` in your Netlify site settings under **Site configuration → Environment variables**. After adding the key, redeploy the site. If the key is absent, the function returns a 500 error.
 
 ## Netlify Deployment
 
@@ -167,22 +168,24 @@ The release UI includes accessible labels on major map controls, the photo dropz
 
 ```
 src/
+  context/
+    AuthContext.tsx       # Hardened auth context (MJW Platform standard)
   components/
-    AuthGuard.tsx         # PocketBase authentication gate
-    MapView.tsx           # React Leaflet map with photo pins
+    AuthGuard.tsx         # PocketBase authentication gate — consumes AuthContext
+    MapView.tsx           # React Leaflet map with cluster markers and route polyline
     PhotoDropzone.tsx     # Drag-and-drop photo upload + EXIF parsing
-    StoryPanel.tsx        # AI story generation UI
+    StoryPanel.tsx        # AI story generation and PocketBase save UI
   lib/
-    exif.ts               # EXIF GPS extraction helpers using exifr
-    pocketbase.ts         # Optional PocketBase client wrapper
+    exif.ts               # EXIF GPS extraction, clustering, and reverse geocoding
+    pocketbase.ts         # Hardened PocketBase client with ensureAuth()
   types/
-    index.ts              # Shared memory and photo types
+    index.ts              # Shared MapPin, Cluster, Story, and TravelerLens types
   App.tsx                 # Root layout + state management
   main.tsx                # Entry point
 
 netlify/
   functions/
-    generate-story.ts     # Secure server-side AI story generation
+    generate-story.ts     # Secure server-side AI story generation via Claude 3.5 Sonnet
 
 public/
   screenshots/            # README screenshots
@@ -190,12 +193,20 @@ public/
 
 ## Changelog
 
+### v0.2.0 — Auth Hardening (MJW Platform Standard)
+
+- Added `AuthContext` — proper React context exposing `user`, `isLoading`, `login`, and `logout`. Listens for `pb:authError` DOM event to force a clean logout on stale tokens, eliminating infinite loading spinners.
+- Added `ensureAuth()` to `pocketbase.ts` — pre-write token refresh guard called before every PocketBase write to prevent silent 403 errors.
+- Refactored `AuthGuard` to consume `useAuth()` from `AuthContext`; login logic moved out of the component layer.
+- Updated `App.tsx` to wrap with `<AuthProvider>` and use `useAuth().logout()` instead of calling `pb.authStore.clear()` directly.
+- Updated `StoryPanel` to call `ensureAuth()` before `pb.collection('stories').create()`.
+
 ### v0.1.0 — Beta Release
 
 - Added drag-and-drop photo dropzone with automatic EXIF GPS coordinate extraction via `exifr`.
-- Added interactive Leaflet map with per-photo pins, popups, and metadata preview.
-- Added secure AI Story Generator through Netlify Functions with OpenAI-first and Gemini-fallback provider handling.
-- Added optional PocketBase authentication guard and cloud memory persistence.
+- Added interactive Leaflet map with cluster markers, route polyline, and reverse geocoding via Nominatim.
+- Added secure AI Story Generator through Netlify Functions calling **Anthropic Claude 3.5 Sonnet**.
+- Added PocketBase authentication guard and cloud story persistence.
 - Added Netlify deployment configuration with API redirect rules and SPA routing.
 
 ---
