@@ -110,6 +110,7 @@ export function StoryPanel({
       // Point 2: Refresh auth token before write to prevent silent 403 errors.
       await ensureAuth();
       const record: Partial<Story> = {
+        user: pb.authStore.model?.id ?? '',
         trip: tripId,
         location_name: tripName
           ? `${tripName} — ${cluster.locationName || ''}`

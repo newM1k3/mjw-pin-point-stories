@@ -24,6 +24,7 @@ function groupByTrip(records: RecordModel[]): TripGroup[] {
   for (const r of records) {
     const story: Story = {
       id: r.id,
+      user: r.user || '',
       trip: r.trip || 'unassigned',
       location_name: r.location_name || '',
       coordinates: r.coordinates || { lat: 0, lng: 0 },
@@ -76,24 +77,17 @@ export function TripsView({ onClose }: TripsViewProps) {
       setIsLoading(true);
       setError('');
       try {
+        const userId = pb.authStore.model?.id ?? '';
         const result = await pb.collection('stories').getList(1, 200, {
           sort: '-created',
-          filter: `user = "${pb.authStore.model?.id}"`,
+          filter: userId ? `user = "${userId}"` : '',
         });
         if (!cancelled) {
           setGroups(groupByTrip(result.items));
         }
-      } catch (err) {
+      } catch {
         if (!cancelled) {
-          // PocketBase may not have a `user` field yet — fall back to unfiltered.
-          try {
-            const result = await pb.collection('stories').getList(1, 200, {
-              sort: '-created',
-            });
-            if (!cancelled) setGroups(groupByTrip(result.items));
-          } catch {
-            setError('Could not load saved stories. Please try again.');
-          }
+          setError('Could not load saved stories. Please try again.');
         }
       } finally {
         if (!cancelled) setIsLoading(false);

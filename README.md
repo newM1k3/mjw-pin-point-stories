@@ -107,20 +107,30 @@ The app works fully with **no environment variables**. In local-only mode, photo
 
 Cloud persistence is optional. When `VITE_POCKETBASE_URL` is configured, the `AuthGuard` component enables a PocketBase sign-in flow. Authenticated users can save their memory collections to PocketBase and access them across sessions. Normal user authentication runs through the public PocketBase URL; **no PocketBase superuser token is placed in frontend code**.
 
-### Recommended `memories` Collection
+### `stories` Collection
 
-Create a PocketBase collection for storing memory records. The current implementation expects authenticated users to own their own records through an `owner` relation field. For the MJW canonical schema, configure the following fields.
+The `stories` collection exists in the MJW PocketBase instance (`mjwdesign-core.pockethost.io`, id: `pbc_232317621`). It was created to match the exact fields written by `StoryPanel` and read by `TripsView`.
 
-| Field | Type | Notes |
-| :---- | :---- | :---- |
-| `title` | text | Display name for the memory collection. |
-| `owner` | relation to `users` | Should point to the authenticated user. |
-| `photos` | json | Array of photo metadata including GPS coordinates and timestamps. |
-| `story` | text | AI-generated narrative text for the collection. |
-| `created` | system field | Managed by PocketBase. |
-| `updated` | system field | Managed by PocketBase. |
+| Field | Type | Required | Notes |
+| :---- | :---- | :---- | :---- |
+| `user` | relation → `users` | **Yes** | Set to `pb.authStore.model.id` on every create. Scopes all reads and writes to the owning user. |
+| `trip` | text (max 36) | No | `crypto.randomUUID()` generated in `App.tsx` when photos are first loaded. Groups all stops from one session into a single trip. |
+| `location_name` | text (max 500) | No | Reverse-geocoded place name, optionally prefixed with the user's trip name: `Japan 2024 — Kyoto, Japan`. |
+| `coordinates` | json | No | `{ lat: number, lng: number }` — the cluster centre point. |
+| `lenses_used` | json | No | Array of `TravelerLens` strings selected by the user. |
+| `content` | text (max 10 000) | No | The AI-generated story text returned by the Netlify Function. |
+| `created` | autodate | System | Managed by PocketBase. |
+| `updated` | autodate | System | Managed by PocketBase. |
 
-Recommended collection rules should allow authenticated users to create records for themselves and only read, update, or delete their own records. A practical rule pattern is `@request.auth.id != "" && owner = @request.auth.id` for user-scoped list/view/update/delete rules.
+**Access rules** (all scoped to the authenticated owner):
+
+| Rule | Value |
+| :---- | :---- |
+| `listRule` | `@request.auth.id != '' && user = @request.auth.id` |
+| `viewRule` | `@request.auth.id != '' && user = @request.auth.id` |
+| `createRule` | `@request.auth.id != ''` |
+| `updateRule` | `@request.auth.id != '' && user = @request.auth.id` |
+| `deleteRule` | `@request.auth.id != '' && user = @request.auth.id` |
 
 ## AI Story Generator Setup
 
@@ -173,8 +183,9 @@ src/
   components/
     AuthGuard.tsx         # PocketBase authentication gate — consumes AuthContext
     MapView.tsx           # React Leaflet map with cluster markers and route polyline
-    PhotoDropzone.tsx     # Drag-and-drop photo upload + EXIF parsing
-    StoryPanel.tsx        # AI story generation and PocketBase save UI
+    PhotoDropzone.tsx     # Drag-and-drop photo upload + EXIF parsing + loading overlay
+    StoryPanel.tsx        # AI story generation and PocketBase save UI (lifted state)
+    TripsView.tsx         # Saved trips accordion — reads stories from PocketBase
   lib/
     exif.ts               # EXIF GPS extraction, clustering, and reverse geocoding
     pocketbase.ts         # Hardened PocketBase client with ensureAuth()
@@ -192,6 +203,16 @@ public/
 ```
 
 ## Changelog
+
+### v0.3.0 — Sprint 1 + PocketBase Schema
+
+- Created `stories` PocketBase collection (`pbc_232317621`) with correct fields: `user` (relation), `trip`, `location_name`, `coordinates` (json), `lenses_used` (json), `content`. Access rules scope all reads/writes to the owning user.
+- Added `user` field to `Story` TypeScript type to match the real schema.
+- `StoryPanel` now sets `user: pb.authStore.model.id` on every `stories.create()` call.
+- `TripsView` filter updated to use `user = "${userId}"` against the real relation field.
+- `App.tsx` generates a `crypto.randomUUID()` `tripId` when photos are first loaded; adds a trip name input field; lifts story state into `Map<clusterId, ClusterStoryState>` so each stop remembers its lenses, story, and saved status across navigation.
+- Added `TripsView` component — accordion UI grouping saved stories by trip with relative date formatting and lens tags.
+- Added `ClusterStoryState` interface to `types/index.ts`.
 
 ### v0.2.0 — Auth Hardening (MJW Platform Standard)
 

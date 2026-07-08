@@ -25,6 +25,8 @@ export type TravelerLens =
 
 export interface Story {
   id: string;
+  /** Relation to the users collection — required on create, set to pb.authStore.model.id */
+  user: string;
   trip: string;
   location_name: string;
   coordinates: { lat: number; lng: number };
